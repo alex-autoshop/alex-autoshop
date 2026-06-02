@@ -14,7 +14,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--g50);color:var(--black);m
 nav{background:var(--black);display:flex;align-items:center;justify-content:space-between;padding:0 1rem;height:54px;position:sticky;top:0;z-index:100;gap:.5rem}
 .nav-logo{display:flex;align-items:center;gap:9px;color:var(--white);font-weight:600;font-size:15px;cursor:pointer;flex-shrink:0}
 .nav-logo-icon{width:30px;height:30px;background:white;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:16px}
-.nav-center{display:flex;gap:3px;flex-wrap:wrap}
+.nav-center{display:flex;gap:3px}
 .nav-tab{padding:5px 11px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,.5);font-family:'DM Sans',sans-serif;transition:all .15s}
 .nav-tab.active{background:rgba(255,255,255,.12);color:white}
 .nav-tab:hover:not(.active){color:rgba(255,255,255,.75)}
@@ -27,6 +27,27 @@ nav{background:var(--black);display:flex;align-items:center;justify-content:spac
 .nav-login-btn:hover{opacity:.85}
 .nav-user-btn{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:7px;background:rgba(255,255,255,.1);border:none;color:white;font-size:13px;font-family:'DM Sans',sans-serif;cursor:pointer}
 .nav-user-avatar{width:24px;height:24px;border-radius:50%;background:#6366f1;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white}
+
+/* BOTTOM NAV (mobile only) */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--black);border-top:1px solid rgba(255,255,255,.1);z-index:100;padding:0 0 env(safe-area-inset-bottom)}
+.bottom-nav-inner{display:flex;align-items:stretch;height:56px}
+.bottom-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;background:none;border:none;color:rgba(255,255,255,.45);font-family:'DM Sans',sans-serif;font-size:10px;font-weight:500;cursor:pointer;padding:6px 0;transition:color .15s}
+.bottom-tab.active{color:white}
+.bottom-tab-icon{font-size:20px;line-height:1}
+.bottom-tab-label{font-size:10px;line-height:1}
+.page-wrap{padding-bottom:0}
+
+@media(max-width:640px){
+  .nav-center{display:none}
+  .bottom-nav{display:block}
+  .page-wrap{padding-bottom:56px}
+  body{padding-bottom:env(safe-area-inset-bottom)}
+  .admin-grid,.cars-grid{grid-template-columns:1fr;padding:.85rem}
+  .modal-sheet,.edit-sheet{border-radius:16px 16px 0 0}
+  .messages-panel{max-width:100%}
+  .grid2,.grid3{grid-template-columns:1fr}
+  .modal-specs-grid{grid-template-columns:1fr 1fr}
+}
 
 /* PAGES */
 .page{display:none}.page.active{display:block}
@@ -266,6 +287,28 @@ nav{background:var(--black);display:flex;align-items:center;justify-content:spac
   </div>
 </nav>
 
+<!-- BOTTOM NAV (mobile) -->
+<div class="bottom-nav">
+  <div class="bottom-nav-inner">
+    <button class="bottom-tab active" id="btab-angebote" onclick="showPage('angebote',this,'btab-angebote')">
+      <span class="bottom-tab-icon">🏠</span>
+      <span class="bottom-tab-label">Angebote</span>
+    </button>
+    <button class="bottom-tab" id="btab-inserieren" onclick="showPage('inserieren',this,'btab-inserieren')">
+      <span class="bottom-tab-icon">➕</span>
+      <span class="bottom-tab-label">Inserieren</span>
+    </button>
+    <button class="bottom-tab" id="btab-meine" onclick="showPage('meine',this,'btab-meine')">
+      <span class="bottom-tab-icon">🚗</span>
+      <span class="bottom-tab-label">Meine Autos</span>
+    </button>
+    <button class="bottom-tab" id="btab-admin" onclick="showPage('admin',this,'btab-admin')">
+      <span class="bottom-tab-icon">⚙️</span>
+      <span class="bottom-tab-label">Admin</span>
+    </button>
+  </div>
+</div>
+
 <!-- AUTH OVERLAY -->
 <div class="auth-overlay" id="auth-overlay">
   <div class="auth-box">
@@ -314,6 +357,7 @@ nav{background:var(--black);display:flex;align-items:center;justify-content:spac
 </div>
 
 <!-- ANGEBOTE -->
+<div class="page-wrap">
 <div class="page active" id="page-angebote">
   <div class="angebote-hero">
     <p style="margin-bottom:.4rem"><span class="live-dot"></span>Aktuelle Angebote</p>
@@ -442,8 +486,8 @@ nav{background:var(--black);display:flex;align-items:center;justify-content:spac
       </div>
     </div>
     <div class="admin-grid" id="admin-grid"></div>
-  </div>
-</div>
+  </div><!-- /page-admin -->
+</div><!-- /page-wrap -->
 
 <script>
 // ── CONSTANTS ──
@@ -923,12 +967,17 @@ function markSold(id){const cars=getCars();const car=cars.find(c=>c.id===id);if(
 function deleteCar(id){if(!confirm('Löschen?'))return;saveCars(getCars().filter(c=>c.id!==id));renderAdmin();renderListings()}
 
 // ── NAV ──
-function showPage(name,btn){
+function showPage(name,btn,btabId){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.bottom-tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
-  if(btn)btn.classList.add('active');
-  else document.getElementById('tab-'+name)?.classList.add('active');
+  // sync top nav tab
+  const topTab=document.getElementById('tab-'+name);
+  if(topTab)topTab.classList.add('active');
+  // sync bottom tab
+  const bTab=btabId?document.getElementById(btabId):document.getElementById('btab-'+name);
+  if(bTab)bTab.classList.add('active');
   if(name==='angebote')renderListings();
   if(name==='meine')renderMeine();
 }
