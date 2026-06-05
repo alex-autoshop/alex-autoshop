@@ -5,7 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Alex Autoshop – Fahrzeugmarkt Wuppertal</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<!-- Leaflet Maps -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
+/* MAP */
+.modal-map-wrap{margin:.75rem 0}
+.modal-map-label{font-size:11px;font-weight:600;color:var(--g500);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px;display:flex;align-items:center;gap:5px}
+#modal-map{height:180px;border-radius:10px;border:1px solid var(--g100);overflow:hidden;z-index:0}
+.distance-badge{display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:20px;font-size:11px;font-weight:600;padding:2px 8px;margin-top:4px}
+.listing-dist{position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.7);color:white;font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;display:flex;align-items:center;gap:3px}
+.listing-img{position:relative}
+</style>
 :root{--black:#0f0f0f;--white:#fafaf8;--g50:#f5f5f3;--g100:#e8e8e4;--g300:#b0b0a8;--g500:#6e6e66;--g700:#3a3a35;--green:#16a34a;--red:#dc2626;--r:10px;--rl:16px}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',sans-serif;background:var(--g50);color:var(--black);min-height:100vh}
@@ -441,6 +452,8 @@ nav{background:var(--black);display:flex;align-items:center;justify-content:spac
       <div class="photo-counter" id="photo-counter"></div>
     </div>
     <div class="form-section">
+      <div class="form-section-title">📍 Standort</div>
+      <div class="field"><label>PLZ oder Stadt <span class="req">*</span></label><input id="f-standort" placeholder="z.B. 42277 Wuppertal" /></div>
       <div class="form-section-title">Beschreibung</div>
       <div class="field"><textarea id="f-desc" placeholder="Zustand, Besonderheiten..."></textarea></div>
     </div>
@@ -658,11 +671,13 @@ function renderListings(){
     const img=(car.photos&&car.photos.length)?`<img src="${car.photos[0]}" />`:'🚗';
     const km=car.km?fmt(car.km)+' km':'';
     const isNew=(Date.now()-car.id)<3*24*60*60*1000;
+    const dist=getCarDist(car);
+    const distBadge=dist?`<span class="listing-dist">📍 ${fmtDist(dist)}</span>`:'';
     return`<div class="listing-card" onclick="openModal(${car.id})">
-      <div class="listing-img">${img}${isNew?'<span class="listing-new-badge">NEU</span>':''}</div>
+      <div class="listing-img">${img}${isNew?'<span class="listing-new-badge">NEU</span>':''}${distBadge}</div>
       <div class="listing-body">
         <div class="listing-title">${car.marke} ${car.modell}</div>
-        <div class="listing-sub">${car.jahr}${km?' · '+km:''}</div>
+        <div class="listing-sub">${car.jahr}${km?' · '+km:''}${car.standort?' · 📍 '+car.standort:''}</div>
         <div class="listing-price">${fmt(car.preis)} € <span>${car.vb}</span></div>
         <div class="listing-specs">
           ${car.kraft?`<span class="spec-tag">${car.kraft}</span>`:''}
@@ -703,8 +718,12 @@ function openModal(id){
     ${car.desc?`<div class="modal-desc">${car.desc}</div>`:''}
     <button class="modal-wa-btn" onclick="openLink('${waUrl}')">📲 WhatsApp anfragen</button>
     ${msgBtn}
+    ${car.standort?`<div class="modal-map-wrap"><div class="modal-map-label">📍 Standort${userLat?` · <span id="modal-dist-label" class="distance-badge">📍 wird berechnet...</span>`:''}
+    </div><div id="modal-map"></div></div>`:''}
     <button class="modal-close" onclick="closeModal()">Schließen</button>`;
   document.getElementById('modal').classList.add('open');document.body.style.overflow='hidden';
+  // Init map if standort provided
+  if(car.standort){setTimeout(()=>initModalMap(car),200)}
 }
 function galleryNav(dir){galleryGoto((galleryIdx+dir+galleryPhotos.length)%galleryPhotos.length)}
 function galleryGoto(i){galleryIdx=i;document.getElementById('gallery-img').src=galleryPhotos[i];document.querySelectorAll('.gallery-dot').forEach((d,j)=>d.classList.toggle('active',j===i))}
@@ -805,6 +824,7 @@ function submitCar(){
     farbe:vv('f-farbe'),preis:vv('f-preis'),vb:vv('f-vb'),
     extras:getExtras(),desc:vv('f-desc'),name:vv('f-name'),tel:vv('f-tel'),
     email:vv('f-email'),pw:vv('f-pw'),photos:photosData.slice(),
+    standort:vv('f-standort')||'Wuppertal',
     status:'pending',eingereicht:new Date().toLocaleDateString('de-DE')
   };
   // auto-register if not logged in
@@ -982,9 +1002,106 @@ function showPage(name,btn,btabId){
   if(name==='meine')renderMeine();
 }
 
+// ── MAPS & GEOLOCATION ──
+let userLat=null,userLng=null,mapInstance=null;
+
+// Haversine distance (km)
+function haversine(lat1,lng1,lat2,lng2){
+  const R=6371;
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// Format distance nicely
+function fmtDist(km){
+  if(km<1)return Math.round(km*1000)+' m';
+  if(km<10)return km.toFixed(1)+' km';
+  return Math.round(km)+' km';
+}
+
+// Geocode Standort via Nominatim (free, no key)
+async function geocodeStandort(standort){
+  try{
+    const q=encodeURIComponent(standort+', Deutschland');
+    const res=await fetch(`https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,{headers:{'Accept-Language':'de'}});
+    const data=await res.json();
+    if(data&&data[0])return{lat:parseFloat(data[0].lat),lng:parseFloat(data[0].lon),display:data[0].display_name};
+  }catch(e){}
+  return null;
+}
+
+// Init Leaflet map in modal
+async function initModalMap(car){
+  // Destroy old map if exists
+  if(mapInstance){mapInstance.remove();mapInstance=null;}
+  const mapEl=document.getElementById('modal-map');
+  if(!mapEl)return;
+
+  const geo=await geocodeStandort(car.standort);
+  if(!geo){mapEl.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:13px;color:var(--g500)">Standort konnte nicht gefunden werden</div>';return;}
+
+  mapInstance=L.map('modal-map',{zoomControl:true,scrollWheelZoom:false}).setView([geo.lat,geo.lng],13);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap',maxZoom:18}).addTo(mapInstance);
+
+  // Car marker
+  const carIcon=L.divIcon({html:'<div style="background:#0f0f0f;color:white;border-radius:8px;padding:4px 8px;font-size:12px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,.3)">🚗 '+car.marke+'</div>',className:'',iconAnchor:[30,16]});
+  L.marker([geo.lat,geo.lng],{icon:carIcon}).addTo(mapInstance).bindPopup(`<b>${car.marke} ${car.modell}</b><br>${car.standort}`);
+
+  // User location marker + distance
+  if(userLat){
+    const userIcon=L.divIcon({html:'<div style="width:14px;height:14px;background:#2563eb;border:3px solid white;border-radius:50%;box-shadow:0 0 0 3px rgba(37,99,235,.3)"></div>',className:'',iconAnchor:[7,7]});
+    L.marker([userLat,userLng],{icon:userIcon}).addTo(mapInstance).bindPopup('Dein Standort');
+
+    // Draw line between user and car
+    L.polyline([[userLat,userLng],[geo.lat,geo.lng]],{color:'#2563eb',weight:2,dashArray:'5,8',opacity:.6}).addTo(mapInstance);
+
+    // Fit both markers
+    mapInstance.fitBounds([[userLat,userLng],[geo.lat,geo.lng]],{padding:[30,30]});
+
+    // Show distance label
+    const dist=haversine(userLat,userLng,geo.lat,geo.lng);
+    const distEl=document.getElementById('modal-dist-label');
+    if(distEl)distEl.innerHTML='📍 '+fmtDist(dist)+' entfernt';
+  }
+}
+
+// Add distance to listing cards
+function getCarDist(car){
+  if(!userLat||!car._lat)return null;
+  return haversine(userLat,userLng,car._lat,car._lng);
+}
+
+// Request user location on load
+function initGeolocation(){
+  if(!navigator.geolocation)return;
+  navigator.geolocation.getCurrentPosition(pos=>{
+    userLat=pos.coords.latitude;
+    userLng=pos.coords.longitude;
+    renderListings(); // Re-render with distances
+  },{},{ enableHighAccuracy:false,timeout:5000 });
+}
+
+// Geocode all cars in background and cache lat/lng
+async function geocodeCarsInBackground(){
+  const cars=getCars();
+  let changed=false;
+  for(const car of cars){
+    if(car.standort&&(!car._lat)){
+      const geo=await geocodeStandort(car.standort);
+      if(geo){car._lat=geo.lat;car._lng=geo.lng;changed=true;}
+      await new Promise(r=>setTimeout(r,200)); // Rate limit Nominatim
+    }
+  }
+  if(changed){saveCars(cars);renderListings();}
+}
+
 // init
 renderListings();
 renderMeine();
+initGeolocation();
+setTimeout(geocodeCarsInBackground,1000);
 </script>
 </body>
 </html>
