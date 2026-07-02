@@ -972,43 +972,42 @@ function tpShowVehicle(data){
 function tpClearVehicle(){tpVehicleId=null;tpVehicleLabel='';document.getElementById('tp-vehicle-card').style.display='none';document.getElementById('tp-results').innerHTML='';}
 
 async function tpLookupHsn(){
-  const hsn=document.getElementById('tp-hsn').value.trim();const tsn=document.getElementById('tp-tsn').value.trim();
-  if(!hsn||!tsn){tpShowToast('⚠️ HSN und TSN eingeben');return}
+  const hsn=document.getElementById('tp-hsn').value.trim().padStart(4,'0');
+  const tsn=document.getElementById('tp-tsn').value.trim().toUpperCase().slice(0,3);
+  if(hsn.replace(/^0+/,'')==''||!tsn){tpShowToast('⚠️ HSN und TSN eingeben');return}
+  const kba=hsn+tsn;
   tpSetLoading('tp-hsn-btn',true);
   try{
-    const res=await fetch(`${AUTOPARTS_BASE}/vehicles?hsn=${hsn}&tsn=${tsn}&vehicleType=1`,{headers:TP_HEADERS});
+    const res=await fetch(`${AUTOPARTS_BASE}?_path=/api/types/searching-the-passenger-car-by-ltn-number/lang-id/4/country-filter-id/63/ltn-number/${kba}/number-type/1`);
     const json=await res.json();
-    const v=(json.data||json)[0];
-    if(!v){tpShowToast('Kein Fahrzeug gefunden — bitte prüfen');return}
-    tpVehicleId=v.vehicleId||v.id||v.typeId;tpShowVehicle(v);tpShowToast('✅ Fahrzeug erkannt!');
+    const vehicles=json.vehicles||json.data||json||[];
+    const v=Array.isArray(vehicles)?vehicles[0]:vehicles;
+    if(!v){tpShowToast('Kein Fahrzeug gefunden — HSN/TSN prüfen');return}
+    tpVehicleId=v.vehicleId||v.typeId||v.id;tpShowVehicle(v);tpShowToast('✅ Fahrzeug erkannt!');
   }catch(e){tpShowToast('Suche fehlgeschlagen — bitte erneut versuchen')}
   finally{const btn=document.getElementById('tp-hsn-btn');if(btn){btn.disabled=false;btn.textContent='Suchen'}}
 }
 
 async function tpLookupVin(){
-  const vin=document.getElementById('tp-vin').value.trim();
+  const vin=document.getElementById('tp-vin').value.trim().toUpperCase();
   if(vin.length!==17){tpShowToast('⚠️ VIN muss 17 Zeichen lang sein');return}
   tpSetLoading('tp-vin-btn',true);
   try{
-    const res=await fetch(`${AUTOPARTS_BASE}/vehicles/vin?vin=${vin}`,{headers:TP_HEADERS});
-    const json=await res.json();const v=(json.data||json);
-    if(!v||(!v.vehicleId&&!v.id)){tpShowToast('Kein Fahrzeug gefunden');return}
-    tpVehicleId=v.vehicleId||v.id;tpShowVehicle(v);tpShowToast('✅ Fahrzeug erkannt!');
+    const res=await fetch(`${AUTOPARTS_BASE}?_path=/api/vin/decoder-v5/${vin}`);
+    const json=await res.json();
+    const v=json.vehicle||json.data||json;
+    const vid=v?.vehicleId||v?.typeId||v?.id;
+    if(!vid){tpShowToast('Kein Fahrzeug gefunden');return}
+    tpVehicleId=vid;tpShowVehicle(v);tpShowToast('✅ Fahrzeug erkannt!');
   }catch(e){tpShowToast('Suche fehlgeschlagen — bitte erneut versuchen')}
   finally{const btn=document.getElementById('tp-vin-btn');if(btn){btn.disabled=false;btn.textContent='Suchen'}}
 }
 
 async function tpLookupPlate(){
-  const plate=document.getElementById('tp-plate').value.trim();
-  if(!plate){tpShowToast('⚠️ Kennzeichen eingeben');return}
-  tpSetLoading('tp-plate-btn',true);
-  try{
-    const res=await fetch(`${AUTOPARTS_BASE}/vehicles/lookup?plate=${encodeURIComponent(plate)}&country=DE`,{headers:TP_HEADERS});
-    const json=await res.json();const v=(json.data||json);
-    if(!v||(!v.vehicleId&&!v.id)){tpShowToast('Kein Fahrzeug gefunden');return}
-    tpVehicleId=v.vehicleId||v.id;tpShowVehicle(v);tpShowToast('✅ Fahrzeug erkannt!');
-  }catch(e){tpShowToast('Suche fehlgeschlagen — bitte erneut versuchen')}
-  finally{const btn=document.getElementById('tp-plate-btn');if(btn){btn.disabled=false;btn.textContent='Suchen'}}
+  // TecDoc hat keine direkte Kennzeichen-API — weiterleiten zu HSN/TSN Erklärung
+  tpShowToast('💡 Bitte HSN/TSN aus dem Fahrzeugschein (Feld 2.1 & 2.2) eingeben');
+  document.getElementById('tptab-hsn')?.click();
+  switchTpTab('hsn');
 }
 
 async function tpSearchParts(){
@@ -1018,12 +1017,33 @@ async function tpSearchParts(){
   results.innerHTML=`<div class="tp-parts-label" style="margin-top:1rem">ERGEBNISSE</div><div class="tp-parts-grid">${[1,2,3,4].map(()=>`<div class="tp-part-card"><div class="tp-skeleton" style="height:130px"></div><div class="tp-part-body"><div class="tp-skeleton" style="height:12px;width:60%;margin-bottom:6px"></div><div class="tp-skeleton" style="height:14px;margin-bottom:4px"></div><div class="tp-skeleton" style="height:11px;width:40%"></div></div></div>`).join('')}</div>`;
   const btn=document.getElementById('tp-search-btn');if(btn){btn.disabled=true;btn.textContent='⏳ Suche...';}
   try{
-    const url=tpVehicleId
-      ?`${AUTOPARTS_BASE}/articles/search?query=${encodeURIComponent(query)}&vehicleId=${tpVehicleId}&language=DE&country=DE`
-      :`${AUTOPARTS_BASE}/articles/search?query=${encodeURIComponent(query)}&language=DE&country=DE`;
-    const res=await fetch(url,{headers:TP_HEADERS});
-    const json=await res.json();
-    const parts=(json.data||json.articles||json)||[];
+    // Search by article/OEM number (supports part numbers, OEM refs)
+    const isOem=/^[0-9A-Z]{6,15}$/.test(query.toUpperCase().replace(/\s/g,''));
+    let parts=[];
+    if(isOem){
+      // Try OEM number search first
+      const oemRes=await fetch(`${AUTOPARTS_BASE}?_path=/api/articles-oem/search-by-article-oem-no&langId=1&articleOemNo=${encodeURIComponent(query)}`);
+      const oemJson=await oemRes.json();
+      parts=(oemJson.data||oemJson.articles||[]);
+    }
+    if(!parts.length){
+      // Fall back to article number search
+      const artRes=await fetch(`${AUTOPARTS_BASE}?_path=/api/articles/search-by-article-no&articleNo=${encodeURIComponent(query)}&langId=1`);
+      const artJson=await artRes.json();
+      parts=(artJson.data||artJson.articles||[]);
+    }
+    if(!parts.length&&tpVehicleId){
+      // Fall back to category listing for vehicle
+      const catRes=await fetch(`${AUTOPARTS_BASE}?_path=/api/category/type-id/1/products-groups-variant-4/${tpVehicleId}/lang-id/4`);
+      const catJson=await catRes.json();
+      const cats=(catJson.productGroups||catJson.data||catJson)||[];
+      const catId=(Array.isArray(cats)?cats[0]:null)?.productGroupId||(Array.isArray(cats)?cats[0]:null)?.categoryId;
+      if(catId){
+        const artRes2=await fetch(`${AUTOPARTS_BASE}?_path=/api/articles/list/type-id/1/vehicle-id/${tpVehicleId}/category-id/${catId}/lang-id/4`);
+        const artJson2=await artRes2.json();
+        parts=(artJson2.articles||artJson2.data||[]);
+      }
+    }
     if(!parts.length){
       results.innerHTML=`<div class="tp-no-results"><div style="font-size:36px;margin-bottom:.75rem">🔍</div>Keine Teile gefunden — direkt anfragen ↓<br><br><button class="tp-btn" style="margin-top:.5rem" onclick="window.open('https://wa.me/4920282690?text=${encodeURIComponent('Hallo Alex Autoshop, ich suche: '+query+'. Bitte Verfügbarkeit und Preis bestätigen.')}','_blank')">📲 Direkt anfragen</button></div>`;
       return;
@@ -1034,11 +1054,15 @@ async function tpSearchParts(){
 }
 
 function tpRenderPartCard(p,query){
-  const img=p.imageUrl?`<img src="${p.imageUrl}" alt="${p.description||''}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=tp-part-img-placeholder>🔧</div>'" />`:'<div class="tp-part-img-placeholder">🔧</div>';
+  // TecDoc API returns s3image for product photos
+  const imgUrl=p.s3image||p.imageUrl||p.image||'';
+  const img=imgUrl?`<img src="${imgUrl}" alt="${p.articleProductName||p.description||''}" loading="lazy" style="width:100%;height:130px;object-fit:contain;padding:8px" onerror="this.parentElement.innerHTML='<div class=tp-part-img-placeholder>🔧</div>'" />`:'<div class="tp-part-img-placeholder">🔧</div>';
   const price=p.price?`${parseFloat(p.price).toLocaleString('de-DE',{minimumFractionDigits:2,maximumFractionDigits:2})} €`:'Preis auf Anfrage';
   const oems=(p.oemNumbers||p.crossReferences||[]);
   const oemHtml=oems.length?`<div class="tp-part-oem"><details><summary style="color:var(--g500);font-size:11px">OEM: ${oems.slice(0,2).join(', ')}${oems.length>2?' ...':''}</summary><div style="margin-top:4px;font-size:10px;font-family:'DM Mono',monospace;color:var(--g500)">${oems.join(', ')}</div></details></div>`:'';
-  const title=p.description||p.name||'Ersatzteil';const brand=p.brandName||p.brand||'';const nr=p.articleNumber||p.partNumber||'';
+  const title=p.articleProductName||p.description||p.name||'Ersatzteil';
+  const brand=p.supplierName||p.brandName||p.brand||'';
+  const nr=p.articleNo||p.articleNumber||p.partNumber||'';
   const waMsg=encodeURIComponent(`Hallo Alex Autoshop, ich benötige: ${title}${nr?' ('+nr+')':''}.${tpVehicleLabel?' Fahrzeug: '+tpVehicleLabel+'.':''} Bitte Preis und Verfügbarkeit bestätigen.`);
   const cartData=JSON.stringify({id:nr||p.articleId||Date.now(),title,brand,nr,price:p.price}).replace(/'/g,'&#39;');
   return`<div class="tp-part-card"><div class="tp-part-img">${img}</div><div class="tp-part-body"><div class="tp-part-brand">${brand}</div><div class="tp-part-title">${title}</div><div class="tp-part-nr">${nr}</div><div class="tp-part-price">${price}</div>${oemHtml}<div class="tp-part-actions"><button class="tp-btn-wa" onclick="window.open('https://wa.me/4920282690?text=${waMsg}','_blank')">📲 Anfragen</button><button class="tp-btn-cart" onclick='tpAddToCart(${cartData})'>🛒 +</button></div></div></div>`;
@@ -1072,9 +1096,4 @@ function cartRemove(i){cart.splice(i,1);updateCartBadge();renderCartDrawer();}
 
 // ── INIT ──
 renderListings();
-renderMeine();
-initGeolocation();
-setTimeout(geocodeCarsInBackground,1000);
-</script>
-</body>
-</html>
+ren
