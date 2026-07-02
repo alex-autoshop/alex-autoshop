@@ -647,8 +647,8 @@ nav{background:var(--black);display:flex;align-items:center;justify-content:spac
 const EXTRAS_LIST=['Navi','Sitzheizung','Rückfahrkamera','Parkassistent','LED-Scheinwerfer','Tempomat','Klimaanlage','Schiebedach','Xenon','Bluetooth','Apple CarPlay','Anhängerkupplung','Allradantrieb','Sporträder','Standheizung'];
 const ADMIN_PW='alex2024';
 const MAX_PH=15;
-const AUTOPARTS_KEY='apk_08e41a156c12dffe6784d5c71e64d19bcf70d12c6bc4e28c';
-const AUTOPARTS_BASE='https://auto-parts-catalog.apiprofile.com/api/v1';
+const AUTOPARTS_KEY='';
+const AUTOPARTS_BASE='https://clever-cart-fixer.vercel.app/api/autoparts';
 
 // ── STORAGE ──
 function getCars(){try{return JSON.parse(localStorage.getItem('alex_cars')||'[]')}catch{return[]}}
@@ -942,7 +942,7 @@ async function geocodeCarsInBackground(){
 
 // ── TEILEPORTAL ──
 let tpVehicleId=null,tpVehicleLabel='';
-const TP_HEADERS={'x-apiprofile-key':AUTOPARTS_KEY,'Content-Type':'application/json'};
+const TP_HEADERS={'Content-Type':'application/json'};
 
 function switchTpTab(tab,btn){
   ['hsn','vin','plate'].forEach(t=>{document.getElementById('tp-panel-'+t).style.display=t===tab?'':'none';document.getElementById('tptab-'+t).classList.toggle('active',t===tab);});
